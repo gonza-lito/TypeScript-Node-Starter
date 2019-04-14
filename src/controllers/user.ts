@@ -7,6 +7,7 @@ import { Request, Response, NextFunction } from "express";
 import { IVerifyOptions } from "passport-local";
 import { WriteError } from "mongodb";
 import "../config/passport";
+import { checkUserExitsAndCreateUser } from "../use-cases/UserUseCases";
 const request = require("express-validator");
 
 
@@ -79,7 +80,7 @@ export let getSignup = (req: Request, res: Response) => {
  * POST /signup
  * Create a new local account.
  */
-export let postSignup = (req: Request, res: Response, next: NextFunction) => {
+export let postSignup = async (req: Request, res: Response, next: NextFunction) => {
   req.assert("email", "Email is not valid").isEmail();
   req.assert("password", "Password must be at least 4 characters long").len({ min: 4 });
   req.assert("confirmPassword", "Passwords do not match").equals(req.body.password);
@@ -92,27 +93,31 @@ export let postSignup = (req: Request, res: Response, next: NextFunction) => {
     return res.redirect("/signup");
   }
 
-  const user = new User({
-    email: req.body.email,
-    password: req.body.password
-  });
 
-  User.findOne({ email: req.body.email }, (err, existingUser) => {
-    if (err) { return next(err); }
-    if (existingUser) {
+  try {
+    const {createdUser} =  await checkUserExitsAndCreateUser.exec({
+      userModel: User,
+      email: req.body.email,
+      password: req.body.password
+    });
+
+    req.logIn(createdUser, (err) => {
+      if (err) {
+        return next(err);
+      }
+      res.redirect("/");
+    });
+
+  } catch (error) {
+    if (error.message === "user.create.user-already-exits") {
       req.flash("errors", { msg: "Account with that email address already exists." });
       return res.redirect("/signup");
     }
-    user.save((err) => {
-      if (err) { return next(err); }
-      req.logIn(user, (err) => {
-        if (err) {
-          return next(err);
-        }
-        res.redirect("/");
-      });
-    });
-  });
+    if (error) { return next(error); }
+
+  }
+
+
 };
 
 /**
